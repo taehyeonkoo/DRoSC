@@ -65,7 +65,7 @@ lambda.plot <- ggplot(dt.all[dt.all$lambda %in% c(0,0.015,0.03,0.045,0.06),], ae
   ylab(latex2exp::TeX("$\\hat{\\tau}$"))+
   theme_minimal()+
   theme(text = element_text(size = 17)) + guides(fill="none")
-lambda.plot\
+lambda.plot
 
 
 
