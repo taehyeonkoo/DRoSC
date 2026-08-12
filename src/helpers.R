@@ -146,11 +146,11 @@ sc <- function(Y0,X0, intercept = FALSE, u = NULL){
 
 
 DRoSC <- function(Y0,Y1,X0,X1,lambda = NULL, intercept = F, nu = 0.01,eta = 0.01,
-                 c = 1/2, 
-                 Inference = F,alpha = 0.05, c.sample = 0.01,M = 500,
-                 dependent = F,
-                 true_mu = NULL,true_beta = NULL,
-                 gamma = 1,alpha0 = 0.01){
+                  c = 1/2, 
+                  Inference = F,alpha = 0.05, c.sample = 0.01,d.pert = 0.1,M = 500,prop.thres=0.1, seed = NULL,
+                  dependent = F,
+                  true_mu = NULL,true_beta = NULL,
+                  gamma = 1,alpha0 = 0.01){
   # method <- match.arg(method)
   T0 <- length(Y0)
   T1 <- length(Y1)
@@ -234,7 +234,7 @@ DRoSC <- function(Y0,Y1,X0,X1,lambda = NULL, intercept = F, nu = 0.01,eta = 0.01
   
   
   
-  
+  # temp.ev <- vector()
   ###################
   #### Inference ####
   ###################
@@ -251,7 +251,7 @@ DRoSC <- function(Y0,Y1,X0,X1,lambda = NULL, intercept = F, nu = 0.01,eta = 0.01
     }
     
     
-    dW <- max(gamma*max(abs(cov.vecl.X0)),1) 
+    dW <- d.pert*max(gamma*max(diag(abs(cov.vecl.X0))),1) 
     if (T0>N*(N+1)/2) {
       dW <- 0
     }
@@ -263,19 +263,22 @@ DRoSC <- function(Y0,Y1,X0,X1,lambda = NULL, intercept = F, nu = 0.01,eta = 0.01
     }
     
     
-    dZ <- max(gamma*max(abs(Y0X0.cov)),1)
+    dZ <-d.pert*max(gamma*max(diag(abs(Y0X0.cov))),1)
     if (T0>N) {
       dZ <- 0 
     }
     
     
-    dX <- max(gamma*max(abs(CovX1)),1)
+    dX <- d.pert*max(gamma*max(diag(abs(CovX1))),1)
     if (T1>N) {
       dX <- 0
     }
     prop <- 0
     
-    while(prop< 0.1){
+    while(prop< prop.thres){
+      if (!is.null(seed)) {
+        set.seed(seed)
+      }
       beta.mat <- matrix(NA,nrow = M,ncol = N)
       mu.mat <- matrix(NA,nrow = M,ncol = N)
       sample.XX <- list()
@@ -283,57 +286,48 @@ DRoSC <- function(Y0,Y1,X0,X1,lambda = NULL, intercept = F, nu = 0.01,eta = 0.01
       sample.X <- sample.Y <- list()
       for (m in 1:M) {
         skip_to_next <<- FALSE
-        if (!cond) { # unconditional
-          XX.repro <- MASS::mvrnorm(mu = X0.cov.vec,Sigma = Sigma.cov)
-          max(abs(XX.repro-X0.cov.vec)/sqrt(diag(Sigma.cov)))
-          # drop outlier
-          if (max(abs(XX.repro-X0.cov.vec)/sqrt(diag(Sigma.cov)))>1.05*qnorm(1-alpha0/(2*length(XX.repro)))) {
-            next
-          }
-          tmp <- matrix(0,nrow = N,ncol = N)
-          tmp[lower.tri(tmp,diag = T)] <- XX.repro
-          # Symmetric
-          for(l in 2:N) {
-            for(k in 1:(l-1)) {
-              tmp[k,l] = tmp[l,k]
-            }
-          }
-          Diag.XX<-diag(eigen(tmp)$values)
-          for(ind in 1:N){
-            Diag.XX[ind,ind]<-max(Diag.XX[ind,ind],1e-3)
-          }
-          ev <- eigen(tmp)
-          XX.positive<-ev$vectors%*%Diag.XX%*%t(ev$vectors)
-        } else{
-          XX.positive <- X0.cov
+        XX.repro <- MASS::mvrnorm(mu = X0.cov.vec,Sigma = Sigma.cov)
+        # drop outlier
+        if (max(abs(XX.repro-X0.cov.vec)/sqrt(diag(Sigma.cov)))>1.05*qnorm(1-alpha0/(2*(1+(N*(N+5))/2)))) {
+          next
         }
+        tmp <- matrix(0,nrow = N,ncol = N)
+        tmp[lower.tri(tmp,diag = T)] <- XX.repro
+        # Symmetric
+        for(l in 2:N) {
+          for(k in 1:(l-1)) {
+            tmp[k,l] = tmp[l,k]
+          }
+        }
+        Diag.XX<-diag(eigen(tmp)$values)
+        for(ind in 1:N){
+          Diag.XX[ind,ind]<-max(Diag.XX[ind,ind],1e-3)
+        }
+        ev <- eigen(tmp)
+        # temp.ev[m] <- min(ev$values)
+        XX.positive<-ev$vectors%*%Diag.XX%*%t(ev$vectors)
         sample.XX[[m]] <- XX.positive
         
         XY.repro <- MASS::mvrnorm(mu = Y0X0.mean,
                                   Sigma = Y0X0.cov/T0+dZ/T0*diag(ncol(Y0X0.cov)))
-        if (max(abs(XY.repro-Y0X0.mean)/sqrt(diag(Y0X0.cov/T0+dZ/T0*diag(ncol(Y0X0.cov)))))>1.05*qnorm(1-alpha0/(2*length(XY.repro)))) {
+        if (max(abs(XY.repro-Y0X0.mean)/sqrt(diag(Y0X0.cov/T0+dZ/T0*diag(ncol(Y0X0.cov)))))>1.05*qnorm(1-alpha0/(2*(1+(N*(N+5))/2)))) {
           next
         }
         sample.XY[[m]] <- XY.repro
         EY1.m <- rnorm(1,mean = EY1, sd = sqrt((VarY1)/T1))
-        if (max(abs(EY1.m-EY1)/sqrt((VarY1)/T1))>1.05*qnorm(1-alpha0/(2*length(EY1.m)))) {
+        if (max(abs(EY1.m-EY1)/sqrt((VarY1)/T1))>1.05*qnorm(1-alpha0/(2*(1+(N*(N+5))/2)))) {
           next
         }
-        if (cond) {
-          EX1.m <- EX1
-        } else{
-          EX1.m <- MASS::mvrnorm(n=1,mu = EX1,Sigma = CovX1/T1+dX/T1*diag(N))
-          if (max(abs(EX1.m-EX1)/sqrt(diag(CovX1/T1+dX/T1*diag(N))))>1.05*qnorm(1-alpha0/(2*length(EX1.m)))) {
-            next
-          }
+        EX1.m <- MASS::mvrnorm(n=1,mu = EX1,Sigma = CovX1/T1+dX/T1*diag(N))
+        if (max(abs(EX1.m-EX1)/sqrt(diag(CovX1/T1+dX/T1*diag(N))))>1.05*qnorm(1-alpha0/(2*(1+(N*(N+5))/2)))) {
+          next
         }
         sample.X[[m]] <- EX1.m
         sample.Y[[m]] <- EY1.m
         A <- (EX1.m)%*%t(EX1.m)
         beta.m <- NA
-        lambda.hat <- lambda+c.sample/sqrt(T0)*(log(min(T0,T1))/M)^{1/(1+(N*(N+5))/2)}*max(sqrt(diag(Y0X0.cov/T0+dZ/T0*diag(ncol(Y0X0.cov)))),
-                                                                                  sqrt(diag(Sigma.cov)))
-
+        lambda.hat <- lambda+c.sample/sqrt(T0)*(log(min(T0,T1))/M)^{1/(1+(N*(N+5))/2)}
+        
         g <- rbind(diag(x=1,N,N),XX.positive,-XX.positive)
         h <- rbind(matrix(0,N,1),cbind(c(XY.repro-lambda.hat,-(XY.repro+lambda.hat))))
         tryCatch(beta.m <-limSolve::lsei(A=EX1.m,B=EY1.m,E=e,F=f,G=g,H=h,type=2)$X,
@@ -343,11 +337,12 @@ DRoSC <- function(Y0,Y1,X0,X1,lambda = NULL, intercept = F, nu = 0.01,eta = 0.01
       }
       valid_rows <- rowSums(!is.na(beta.mat)) > 0
       prop <- mean(valid_rows)
-      if (prop<0.1) {
+      if (prop<prop.thres) {
         c.sample <- 1.25*c.sample
       }
     }
     mu.valid <- mu.mat[valid_rows,]
+    # temp.ev <- temp.ev[valid_rows]
     beta.valid <- beta.mat[valid_rows,]
     sample.XX <- sample.XX[valid_rows]
     sample.XY <-sample.XY[valid_rows]
@@ -391,8 +386,9 @@ DRoSC <- function(Y0,Y1,X0,X1,lambda = NULL, intercept = F, nu = 0.01,eta = 0.01
                   mu.min = mu.min,beta.min = beta.min, negli.min =  negli.min,
                   prop = prop,c.sample = c.sample ))
     } else{
-      return(list(betaHat = betaHat,tauHat = tauHat,check = check,
-                  CI.tau=CI.tau,prop = prop,c.sample = c.sample))
+      return(list(betaHat = betaHat,tauHat = tauHat,check = check,lambda.est=thres,
+                  CI.tau=CI.tau,prop = prop,c.sample = c.sample,lambda.pert=lambda.hat,
+                  Int.mat=Int.mat,mu.valid=mu.valid,beta.valid=beta.valid))
     }
     
   } else{
