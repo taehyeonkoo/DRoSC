@@ -6,7 +6,7 @@ and Statistical Inference**, by Taehyeon Koo and Zijian Guo.
 The paper defines the weight-robust treatment effect (WRoTE) through
 distributionally robust optimization and develops perturbation-based inference
 for it. The repository and main function retain the name `DRoSC`. This code
-implements the methods described in the [accompanying paper][https://arxiv.org/abs/2511.02632].
+implements the methods described in the [accompanying paper](https://arxiv.org/abs/2511.02632).
 
 ## Files
 
