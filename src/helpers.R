@@ -142,25 +142,67 @@ sc <- function(Y0,X0, intercept = FALSE, u = NULL){
     }
   }
 }
-
-
-
+# Main implementation of the WRoTE estimation procedure.
+# Y0 and Y1 are treated-unit outcomes; X0 and X1 contain the corresponding
+# controls by column. Setting Inference = TRUE additionally runs the
+# perturbation-based procedure. CI.tau stores the connected components of the
+# aggregated confidence set. The argument gamma is a legacy tuning-parameter
+# name and is not the population cross-moment gamma used in the paper.
 DRoSC <- function(Y0,Y1,X0,X1,lambda = NULL, intercept = F, nu = 0.01,eta = 0.01,
                   c = 1/2, 
                   Inference = F,alpha = 0.05, c.sample = 0.01,d.pert = 0.1,M = 500,prop.thres=0.1, seed = NULL,
                   dependent = F,
                   true_mu = NULL,true_beta = NULL,
                   gamma = 1,alpha0 = 0.01){
-  # method <- match.arg(method)
+  X0 <- as.matrix(X0)
+  X1 <- as.matrix(X1)
+  Y0 <- as.numeric(Y0)
+  Y1 <- as.numeric(Y1)
+
+  if (nrow(X0) != length(Y0) || nrow(X1) != length(Y1)) {
+    stop("Rows of X0 and X1 must match the lengths of Y0 and Y1, respectively.")
+  }
+  if (ncol(X0) != ncol(X1) || ncol(X0) < 1) {
+    stop("X0 and X1 must contain the same, nonzero number of control columns.")
+  }
+  if (length(Y0) < 2 || length(Y1) < 2) {
+    stop("Both the pre- and post-treatment periods must contain at least two observations.")
+  }
+  if (!is.numeric(X0) || !is.numeric(X1) ||
+      any(!is.finite(c(Y0, Y1, X0, X1)))) {
+    stop("Y0, Y1, X0, and X1 must contain only finite numeric values.")
+  }
+  if (is.null(lambda)) {
+    lambda <- 0
+  }
+  if (length(lambda) != 1 || !is.finite(lambda) || lambda < 0) {
+    stop("lambda must be one finite, nonnegative number.")
+  }
+  if (!is.logical(Inference) || length(Inference) != 1 || is.na(Inference)) {
+    stop("Inference must be TRUE or FALSE.")
+  }
+  if (!is.logical(dependent) || length(dependent) != 1 || is.na(dependent)) {
+    stop("dependent must be TRUE or FALSE.")
+  }
+  if (Inference &&
+      (length(alpha) != 1 || length(alpha0) != 1 ||
+       !is.finite(alpha) || !is.finite(alpha0) ||
+       alpha <= 0 || alpha >= 1 || alpha0 < 0 || alpha0 >= alpha)) {
+    stop("For inference, alpha must be in (0, 1) and alpha0 in [0, alpha).")
+  }
+  if (Inference &&
+      (length(M) != 1 || !is.finite(M) || M < 1 || M != as.integer(M))) {
+    stop("M must be a positive integer.")
+  }
+  if (Inference &&
+      (length(prop.thres) != 1 || !is.finite(prop.thres) ||
+       prop.thres <= 0 || prop.thres > 1)) {
+    stop("prop.thres must lie in (0, 1].")
+  }
+
   T0 <- length(Y0)
   T1 <- length(Y1)
   N <- ncol(X0)
-  Y0 <- as.vector(Y0)
-  Y1 <- as.vector(Y1)
-  
-  if (length(lambda)==0) {
-    lambda <- 0
-  }
   
   # Normalize columns of X
   SC.fit <- sc(Y0,X0,intercept = intercept)
@@ -285,7 +327,6 @@ DRoSC <- function(Y0,Y1,X0,X1,lambda = NULL, intercept = F, nu = 0.01,eta = 0.01
       sample.XY <- list()
       sample.X <- sample.Y <- list()
       for (m in 1:M) {
-        skip_to_next <<- FALSE
         XX.repro <- MASS::mvrnorm(mu = X0.cov.vec,Sigma = Sigma.cov)
         # drop outlier
         if (max(abs(XX.repro-X0.cov.vec)/sqrt(diag(Sigma.cov)))>1.05*qnorm(1-alpha0/(2*(1+(N*(N+5))/2)))) {
@@ -294,16 +335,15 @@ DRoSC <- function(Y0,Y1,X0,X1,lambda = NULL, intercept = F, nu = 0.01,eta = 0.01
         tmp <- matrix(0,nrow = N,ncol = N)
         tmp[lower.tri(tmp,diag = T)] <- XX.repro
         # Symmetric
-        for(l in 2:N) {
-          for(k in 1:(l-1)) {
-            tmp[k,l] = tmp[l,k]
+        if (N > 1) {
+          for(l in 2:N) {
+            for(k in 1:(l-1)) {
+              tmp[k,l] = tmp[l,k]
+            }
           }
         }
-        Diag.XX<-diag(eigen(tmp)$values)
-        for(ind in 1:N){
-          Diag.XX[ind,ind]<-max(Diag.XX[ind,ind],1e-3)
-        }
         ev <- eigen(tmp)
+        Diag.XX <- diag(pmax(ev$values, 1e-3), nrow = N, ncol = N)
         # temp.ev[m] <- min(ev$values)
         XX.positive<-ev$vectors%*%Diag.XX%*%t(ev$vectors)
         sample.XX[[m]] <- XX.positive
@@ -325,13 +365,15 @@ DRoSC <- function(Y0,Y1,X0,X1,lambda = NULL, intercept = F, nu = 0.01,eta = 0.01
         sample.X[[m]] <- EX1.m
         sample.Y[[m]] <- EY1.m
         A <- (EX1.m)%*%t(EX1.m)
-        beta.m <- NA
+        beta.m <- rep(NA_real_, N)
         lambda.hat <- lambda+c.sample/sqrt(T0)*(log(min(T0,T1))/M)^{1/(1+(N*(N+5))/2)}
         
         g <- rbind(diag(x=1,N,N),XX.positive,-XX.positive)
         h <- rbind(matrix(0,N,1),cbind(c(XY.repro-lambda.hat,-(XY.repro+lambda.hat))))
-        tryCatch(beta.m <-limSolve::lsei(A=EX1.m,B=EY1.m,E=e,F=f,G=g,H=h,type=2)$X,
-                 error = function(e) { skip_to_next <<- TRUE})
+        beta.m <- tryCatch(
+          limSolve::lsei(A=EX1.m,B=EY1.m,E=e,F=f,G=g,H=h,type=2)$X,
+          error = function(e) rep(NA_real_, N)
+        )
         beta.mat[m,] <- beta.m
         mu.mat[m,] <- EX1.m
       }
@@ -341,9 +383,9 @@ DRoSC <- function(Y0,Y1,X0,X1,lambda = NULL, intercept = F, nu = 0.01,eta = 0.01
         c.sample <- 1.25*c.sample
       }
     }
-    mu.valid <- mu.mat[valid_rows,]
+    mu.valid <- mu.mat[valid_rows, , drop = FALSE]
     # temp.ev <- temp.ev[valid_rows]
-    beta.valid <- beta.mat[valid_rows,]
+    beta.valid <- beta.mat[valid_rows, , drop = FALSE]
     sample.XX <- sample.XX[valid_rows]
     sample.XY <-sample.XY[valid_rows]
     sample.X <- sample.X[valid_rows]
@@ -352,7 +394,7 @@ DRoSC <- function(Y0,Y1,X0,X1,lambda = NULL, intercept = F, nu = 0.01,eta = 0.01
     Int.mat <- matrix(NA,nrow = nrow(beta.valid),ncol = 2)
     SE <- sqrt(VarY1)
     for (i in 1:nrow(beta.valid)) {
-      tau.m <- EY1 - EX1.m%*%beta.valid[i,]
+      tau.m <- EY1 - sum(mu.valid[i, ] * beta.valid[i, ])
       tau.vec[i] <- tau.m
       # SE <- sd(Y1-EY1)
       Int.mat[i,] <- c(tau.m-qnorm(1-(alpha-alpha0)/2)*SE/sqrt(T1),tau.m+qnorm(1-(alpha-alpha0)/2)*SE/sqrt(T1))

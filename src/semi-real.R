@@ -4,7 +4,10 @@
 
 library(Synth)
 library(ggcorrplot)
-source("~/Dropbox/Taehyeon/Synthetic Control/R-code/helpers.R")
+library(ggplot2)
+library(dplyr)
+library(tidyr)
+source(file.path("src", "helpers.R"))
 ### Basque ###
 ### T0 = 15, N = 16, T1 = 28
 data("basque") 
@@ -37,8 +40,8 @@ cor.plot
 c.cand <- c(0,0.05,0.1,0.15)
 dt.var <- dt <- data.frame()
 nsims <- 1000
-beta.mat.DRSC <- beta.mat <- matrix(nrow = nsims,ncol = N)
-beta.list.DRSC <- beta.list <- list()
+beta.mat.DRoSC <- beta.mat <- matrix(nrow = nsims,ncol = N)
+beta.list.DRoSC <- beta.list <- list()
 for (c in c.cand) {
   cat("c = ",c,"\n")
   # var.mat <- matrix(nrow = length(l.cand),ncol = 2)
@@ -53,19 +56,19 @@ for (c in c.cand) {
     beta.mat[nsim,] <- sc(Y0.new,X0.new)$w.hat
     tau.sc <- mean(Y1-X1%*%sc(Y0.new,X0.new)$w.hat)
     sc.vec[nsim] <- tau.sc
-    ARSC.fit <- ARSC(Y0.new,Y1,X0.new,X1,lambda = 0)
-    drsc.vec[nsim] <- ARSC.fit$tauHat
-    beta.mat.DRSC[nsim,] <- ARSC.fit$betaHat
+    DRoSC.fit <- DRoSC(Y0.new,Y1,X0.new,X1,lambda = 0)
+    drsc.vec[nsim] <- DRoSC.fit$tauHat
+    beta.mat.DRoSC[nsim,] <- DRoSC.fit$betaHat
   }
   beta.list[[which(c.cand==c)]] <- beta.mat
-  beta.list.DRSC[[which(c.cand==c)]] <- beta.mat.DRSC
+  beta.list.DRoSC[[which(c.cand==c)]] <- beta.mat.DRoSC
   dt <- rbind(dt,data.frame(tauHat = drsc.vec, c = c, method = 'DRoSC'),
               data.frame(tauHat = sc.vec, c = c,method = 'SC'))
 }
 
 
 # Columns to consider based on SC.beta
-cols_to_keep <- which(apply(beta.list.DRSC[[2]],2,function(col) mean(col > 0)>0))
+cols_to_keep <- which(apply(beta.list.DRoSC[[2]],2,function(col) mean(col > 0)>0))
 cols_to_keep <-cols_to_keep[order(SC.beta[cols_to_keep], decreasing = TRUE)]
 cols_to_keep <- setdiff(cols_to_keep,which(names(SC.beta)%in%c("Navarra","Canarias","Murcia")))
 rows <- list()
@@ -75,7 +78,7 @@ for (j in seq_along(c.cand)) {
   c_val <- c.cand[j]
   
   # Compute the proportion for each region (column)
-  prop <- apply(beta.list.DRSC[[j]][, cols_to_keep, drop = FALSE], 2, function(x) mean(x > c_val))
+  prop <- apply(beta.list.DRoSC[[j]][, cols_to_keep, drop = FALSE], 2, function(x) mean(x > c_val))
   
   # Store the result with row name as threshold
   rows[[j]] <- prop
@@ -108,7 +111,7 @@ plot.basque.supp
 
 ### For DRoSC ###
 # Columns to consider based on SC.beta
-cols_to_keep <- which(apply(beta.list.DRSC[[1]],2,function(col) mean(col > 0)>0.05))#which(SC.beta>0)
+cols_to_keep <- which(apply(beta.list.DRoSC[[1]],2,function(col) mean(col > 0)>0.05))#which(SC.beta>0)
 cols_to_keep <-cols_to_keep[order(SC.beta[cols_to_keep], decreasing = TRUE)]
 cols_to_keep <- setdiff(cols_to_keep,which(names(SC.beta)%in%c("Navarra","Canarias","Murcia")))
 rows <- list()
@@ -118,7 +121,7 @@ for (j in seq_along(c.cand)) {
   c_val <- c.cand[j]
   
   # Compute the proportion for each region (column)
-  prop <- apply(beta.list.DRSC[[j]][, cols_to_keep, drop = FALSE], 2, function(x) mean(x > c_val))
+  prop <- apply(beta.list.DRoSC[[j]][, cols_to_keep, drop = FALSE], 2, function(x) mean(x > c_val))
   
   # Store the result with row name as threshold
   rows[[j]] <- prop
@@ -168,7 +171,7 @@ for (k in k.cand) {
   SC.post[which(colnames(X0)%in%c("Baleares"))] <- (1-k)*SC.beta[which(colnames(X0)%in%c("Baleares"))]
   SC.post[which(colnames(X0)%in%c("Rioja"))] <- (1-k)*SC.beta[which(colnames(X0)%in%c("Rioja"))]
   
-  stopifnot(sum(SC.post)|all(SC.post>=0) )
+  stopifnot(isTRUE(all.equal(sum(SC.post), 1)), all(SC.post >= 0))
    # sum-to-one
   # all non-negative
   tau.t <- Y1-X1%*%SC.post
@@ -180,7 +183,7 @@ for (k in k.cand) {
   X0.var <- min(diag(cov(X0)))
   X1.var <- min(diag(cov(X1)))
   
-  arsc.vec <- tau.vec <- vector()
+  drosc.vec <- tau.vec <- vector()
   Sigma.true <- t(X0)%*%X0/T0+diag(X0.var,N) # Covariance + mu
   # eigen(Sigma.true)$values
   lambda <- max(abs((Sigma.true%*%(SC.beta-SC.post))))
@@ -214,11 +217,11 @@ for (k in k.cand) {
   Y1.obs.mat <- matrix(nrow = nsims, ncol = T1)
   SC.mat <- matrix(nrow = nsims,ncol = N)
   CI.SC.mat <- matrix(nrow = nsims,ncol = 2)
-  CI.ARSC.mat<- matrix(nrow = nsims,ncol = 2)
+  CI.DRoSC.mat<- matrix(nrow = nsims,ncol = 2)
   length.SC <- rep(0,nsims)
-  length.ARSC <- rep(0,nsims)
+  length.DRoSC <- rep(0,nsims)
   cnt.SC <- 0
-  cnt.ARSC <- 0
+  cnt.DRoSC <- 0
   CI.mat <- matrix(nrow = nsims, ncol = 2)
   beta.mat <- matrix(nrow = nsims,ncol = length(beta.star))
   M <- 500
@@ -246,15 +249,15 @@ for (k in k.cand) {
     # SC.mat[i,] <- SC.i
     tau.i <- mean(semi.Y1.obs-semi.X1%*%SC.i)
     tau.vec[i] <- tau.i
-    arsc.i <- ARSC(semi.Y0,semi.Y1.obs,semi.X0,semi.X1,lambda = lambda,
-                   method = 'specify',Inference = F,M = M,
-                   true_beta = beta.star, true_mu = apply(X1,2,mean))
+    drosc.i <- DRoSC(semi.Y0,semi.Y1.obs,semi.X0,semi.X1,lambda = lambda,
+                     Inference = F,M = M,
+                     true_beta = beta.star, true_mu = apply(X1,2,mean))
 
-    arsc.vec[i] <- arsc.i$tauHat
+    drosc.vec[i] <- drosc.i$tauHat
     
   }
   prop.dt <- rbind(prop.dt, data.frame(tauHat = tau.vec, estimand = tau.SC, k = k, method = 'SC'),
-        data.frame(tauHat = arsc.vec, estimand = tau.star, k = k, method = 'DRoSC'))
+        data.frame(tauHat = drosc.vec, estimand = tau.star, k = k, method = 'DRoSC'))
  
 }
 library(dplyr)
@@ -275,10 +278,10 @@ ggplot(sc_only, aes(x = factor(k), y = tauHat)) +
     theme(text = element_text(size = 15))
 
 # Filter for SC method only
-arsc_only <- prop.dt %>% filter(method == "DRoSC")
+drosc_only <- prop.dt %>% filter(method == "DRoSC")
 
 # Plot violin plot of tauHat by k
-ggplot(arsc_only, aes(x = factor(k), y = tauHat)) +
+ggplot(drosc_only, aes(x = factor(k), y = tauHat)) +
   geom_violin(fill = "lightpink",scale = "width") +
   labs(x = expression(kappa), y = expression(hat(tau))) +
   geom_segment(aes(x = as.numeric(factor(k)) - 0.5, 
@@ -291,5 +294,3 @@ ggplot(arsc_only, aes(x = factor(k), y = tauHat)) +
 
   
   
-
-

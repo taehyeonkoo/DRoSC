@@ -1,8 +1,9 @@
 
 rm(list = ls())
-source("~/Documents/GitHub/DRoSC/src/helpers.R")
+source(file.path("src", "helpers.R"))
 
 library(ggcorrplot)
+library(ggplot2)
 library(Synth)
 ### Basque ###
 ### T0 = 15, N = 16, T1 = 28
@@ -43,11 +44,12 @@ dt.pe<- data.frame()
 for (i in 1:length(l.cand)) {
   set.seed(1)
   l <- l.cand[i]
-  DRSC.fit <- DRoSC(Y0,Y1,X0,X1,lambda = l,Inference = T)
+  DRoSC.fit <- DRoSC(Y0,Y1,X0,X1,lambda = l,Inference = T)
+  ci.range <- c(min(DRoSC.fit$CI.tau[, 1]), max(DRoSC.fit$CI.tau[, 2]))
   
-  dt.pe <- data.frame(lambda = l,tauHat = DRSC.fit$tauHat,
-                      CI.tau.1 = DRSC.fit$CI.tau[,1],
-                      CI.tau.2 = DRSC.fit$CI.tau[,2])
+  dt.pe <- rbind(dt.pe, data.frame(lambda = l,tauHat = DRoSC.fit$tauHat,
+                                   CI.tau.1 = ci.range[1],
+                                   CI.tau.2 = ci.range[2]))
 }
 dt.all <- dt.pe
 
@@ -74,21 +76,21 @@ Y0
 X0
 X1
 
-source("~/Documents/GitHub/DRoSC/src/helpers.R")
 set.seed(1)
-DRSC.fit <- DRoSC(Y0,Y1,X0,X1,lambda = 0.0,Inference = T,M=500)
-DRSC.fit$lambda.pert
+DRoSC.fit <- DRoSC(Y0,Y1,X0,X1,lambda = 0.0,Inference = T,M=500)
+DRoSC.fit$lambda.pert
 df <- data.frame(
-  id = c(0:(nrow(DRSC.fit$Int.mat)-1),nrow(DRSC.fit$Int.mat)+2),
-  lower = c(DRSC.fit$Int.mat[, 1],DRSC.fit$CI.tau[,1]),
-  upper = c(DRSC.fit$Int.mat[, 2],DRSC.fit$CI.tau[,2])
+  id = c(seq_len(nrow(DRoSC.fit$Int.mat)) - 1,
+         nrow(DRoSC.fit$Int.mat) + seq_len(nrow(DRoSC.fit$CI.tau)) + 1),
+  lower = c(DRoSC.fit$Int.mat[, 1],DRoSC.fit$CI.tau[,1]),
+  upper = c(DRoSC.fit$Int.mat[, 2],DRoSC.fit$CI.tau[,2])
 )
 
-df$agg <- df$id == max(df$id)
+df$agg <- seq_len(nrow(df)) > nrow(DRoSC.fit$Int.mat)
 ggplot(df, aes(x = id, ymin = lower, ymax = upper, color = agg)) +
   geom_linerange(size = 0.7) +
   geom_hline(yintercept = 0,colour = 'darkgreen',linetype = 'dashed')+
-  geom_hline(yintercept = DRSC.fit$tauHat,colour = 'mediumblue',linetype = 'longdash')+
+  geom_hline(yintercept = DRoSC.fit$tauHat,colour = 'mediumblue',linetype = 'longdash')+
   scale_color_manual(
     values = c("FALSE" = "black", "TRUE" = "red"),
     labels = c("Individual intervals", "Aggregated interval"),
@@ -97,11 +99,10 @@ ggplot(df, aes(x = id, ymin = lower, ymax = upper, color = agg)) +
   labs(x = "Perturbation index", y = "Perturbed intervals") +
   theme_minimal()+ theme(legend.position = "none")
 
-idx <- which(apply(DRSC.fit$Int.mat,1,mean)<0.9&apply(DRSC.fit$Int.mat,1,mean)>-0.9)
+idx <- which(apply(DRoSC.fit$Int.mat,1,mean)<0.9&apply(DRoSC.fit$Int.mat,1,mean)>-0.9)
 
-DRSC.fit$Int.mat[-idx,]
-apply(DRSC.fit$mu.valid[-idx,],1,function(x){x-mu})
-DRSC.fit$beta.valid[-idx,]
-DRSC.fit$betaHat
-rowSums(DRSC.fit$mu.valid[-idx,]*DRSC.fit$beta.valid[-idx,])-sum(mu*DRSC.fit$betaHat)
-
+DRoSC.fit$Int.mat[-idx,]
+apply(DRoSC.fit$mu.valid[-idx,],1,function(x){x-mu})
+DRoSC.fit$beta.valid[-idx,]
+DRoSC.fit$betaHat
+rowSums(DRoSC.fit$mu.valid[-idx,]*DRoSC.fit$beta.valid[-idx,])-sum(mu*DRoSC.fit$betaHat)

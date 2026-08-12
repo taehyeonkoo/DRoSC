@@ -1,5 +1,5 @@
-# setting <- 1
-source("~/Documents/GitHub/DRoSC/src/helpers.R")
+# Run from the repository root and provide the simulation settings on stdin.
+source(file.path("src", "helpers.R"))
 library(ggplot2)
 # library(Matrix)
 N <- 10
@@ -11,6 +11,7 @@ dt.CI <- data.frame()
 alpha = 0.05
 
 
+gi <- file("stdin", open = "r")
 setting <- as.numeric(readLines(gi,n=1)) # {1,2,3}
 T0 <- as.numeric(readLines(gi,n=1)) # {25,50}
 T1 <- as.numeric(readLines(gi,n=1))  # {25,50}
@@ -36,8 +37,7 @@ if (setting==1) { # favorable to SC
   mu1 <- mu0+c(0.6,0.4,0.2,rep(-0.0,3),rep(-0.0,N-6)) # X shift
   SC.post <- SC.true+c(-rep(c,1),rep(0,N-2),rep(c,1))
   if (any(SC.post<0)|round(sum(SC.post),3)!=1) {
-    cat("error for beta1\n")
-    break
+    stop("Invalid post-treatment weights.")
   }
 } else if(setting ==3){ # beta shift
   c <- 0.2
@@ -51,8 +51,7 @@ if (setting==1) { # favorable to SC
   # c <- as.numeric(readLines(gi,n=1))
   SC.post <- SC.true+c(-rep(c,3),rep(0,N-6),rep(c,3))
   if (any(SC.post<0)|round(sum(SC.post),3)!=1) {
-    cat("error for beta1\n")
-    break
+    stop("Invalid post-treatment weights.")
   }
 } 
 
@@ -70,6 +69,7 @@ linf.beta <- matrix(nrow = nsims,ncol = N)
 mu.beta <- matrix(nrow = nsims,ncol = N)
 l2.vec <- linf.vec <- mu.vec <- vector()
 tau <- as.numeric(readLines(gi,n=1)) # {-1.5,-1.4,...,1.5}
+close(gi)
 lambda <- max(abs(Sigma.true%*%(SC.post-SC.true)))
 
 if (lambda ==0) {
@@ -91,7 +91,9 @@ for (m in 1:nsims) {
   }
   F1 <- rnorm(T0+T1)
   F2 <- rnorm(T0+T1)
-  eps_y <- generate_AR1_process(T0+T1, 1, phi, 1, 0)
+  # Serial dependence is introduced through the controls; treated-unit errors
+  # remain i.i.d. in both values of phi used in the manuscript.
+  eps_y <- rnorm(T0 + T1)
   X0 <- generate_AR1_process(T0, N, phi, Sigma0, mu0)#MASS::mvrnorm(T0,mu = mu0,Sigma = Sigma0)
   
   X1 <-  generate_AR1_process(T1, N, phi, Sigma1, mu1)#MASS::mvrnorm(T1,mu = mu1,Sigma = Sigma1)
@@ -118,7 +120,9 @@ for (m in 1:nsims) {
   
   
   dt <- rbind(dt,data.frame(setting = setting,T0 = T0,T1 = T1,tauHat = DRoSC.fit$tauHat,
-                            tau = tau,tau.star = tau.star, CI.lower = DRoSC.fit$CI.tau[1],CI.upper = DRoSC.fit$CI.tau[2]))
+                            tau = tau,tau.star = tau.star,
+                            CI.lower = min(DRoSC.fit$CI.tau[, 1]),
+                            CI.upper = max(DRoSC.fit$CI.tau[, 2])))
 }
 filename <- paste("setting",setting,"-phi",phi,"-pre",T0,"-post",T1,"-tau",tau,".RData", sep="")
 save.image(filename)
